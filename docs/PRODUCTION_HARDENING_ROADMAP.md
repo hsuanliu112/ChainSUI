@@ -209,9 +209,22 @@
 
 > **待處理（H1 test author 回報的設計項）**：多 cap 情境下 `_get_auto_threshold`（取最新 cap）與 `_get_cap_record`（依 cap id）可能取到不同 cap 的門檻——目前 `get_active_cap` 只回單一 cap，實務不發生；多 cap 功能上線前需統一。
 
+### I — 付款效率改善（快速包 + 鏈上儲值 Vault）
+> 目標：讓「轉錢進合約」在 app 內更順。付款本質仍是乘客自付 SUI（Enoki 只贊助 gas）。
+- [x] ✅ **I1** 快速改善包（不動合約）：(a) 修 coin 挑選 bug——`_pick_passenger_coins` 支援多顆小 coin 加總湊足，PTB 內 `merge_coins` 後再 split（舊版只挑單顆足額，碎幣就付不了）；(b) `POST /wallet/faucet` 一鍵領 testnet 測試幣（限流 + 429 友善轉譯 + 僅 testnet）；(c) 前端 `_WalletSheet`（餘額顯示 + 領幣）+ passenger_home 入口 + 付款前餘額預檢（不足快速失敗給明確訊息，不再走到後端組交易才炸）。**整合測試 76 passed**（71 + 5 新 coin 挑選案例）；`flutter analyze` 新碼 0 error。
+- [ ] ⬜ **I2** 鏈上儲值 Vault 合約：新 `ride_vault.move`（仿 RefundPoolV2 的 Balance<SUI> 存提，每乘客一個 shared RideVault，owner-only 存提 + Agent 持 cap 在額度內 `lock_payment_from_vault`）+ `agent_registry` 新增 `ACTION_VAULT_DEBIT=16`。⚠️ 需重新部署 = 新 package id + 更新 app_config + Enoki allowedMoveCallTargets。
+- [ ] ⬜ **I3** Vault 後端 + 前端：`vault_service`（deposit/withdraw Enoki 贊助、lock_from_vault Agent 直簽）+ 司機接單後自動從 vault 扣款（餘額足且 cap 授權）→ 零簽名叫車，銜接 H1 決策層放款；委託 `allowedActions` 升 19；delegation_page 加儲值 UI。
+
 ---
 
 ## 8. 變更日誌 (Changelog)
+
+- 2026-09-08 · [I1 付款效率快速改善包] · 讓入金/付款在 app 內更順（不動合約）。
+  - **coin 挑選 bug 修復**：`payment_zklogin_service._pick_passenger_coin`→`_pick_passenger_coins`——單顆足額優先（挑最小足額顆），否則由大到小湊足；`build_lock_payment_kind` 多顆時先 `txn.merge_coins` 合併再 `split_coin`。修掉「多顆小 coin 加總夠卻付不了」。加總不足才報錯（訊息帶目前總餘額）。
+  - **一鍵領測試幣**：`POST /wallet/faucet`（authed，取 user zkLogin 位址打 testnet faucet）——僅 testnet、後端限流 3 次/10 分、429 轉友善訊息、連線失敗回 502。`GET /wallet/balance` 沿用既有。
+  - **前端**：`_WalletSheet`（passenger_home PopupMenu「錢包餘額/領測試幣」入口，顯示餘額 + 領幣 + 重查）；付款 dialog 加 `_precheckBalance`——餘額不足在組交易前就明確報「現有 X / 需 Y SUI」，不再走到後端挑 coin 才炸；`api_service` 加 `requestFaucet`。
+  - 驗證：整合測試 **76 passed**（71 + 5 新 coin 挑選，`test_payment_coin_selection.py`）；backend `/health` 200、faucet/balance 未帶 token 正確回 403、無 Traceback；`flutter analyze` 新碼 0 error。
+  · `backend/app/services/payment_zklogin_service.py`, `backend/app/api/v1/wallet.py`, `backend/tests/integration/test_payment_coin_selection.py`(新), `backend/tests/integration/test_llm_client.py`(修環境依賴), `mobile/lib/{passenger_home_page.dart,services/api_service.dart,widgets/one_click_payment_dialog.dart}`
 
 - 2026-09-05 · [H1+H2 Agent 智能決策層（守護）] · 導入 LLM 結算決策層（開源模型，`AGENT_LLM_ENABLED` 預設關）。三層不變式：LLM 建議 → `agent_guardrails`（Python 硬邊界）→ `agent_service`+OperatorCap（鏈上）。
   - 後端：`llm_client.py`（httpx 打 OpenAI-compatible /chat/completions，逾時/壞 JSON → None fallback）、`agent_brain.py`（`decide_settlement`/`settle_trip`/`execute_confirmed`；分級：≤ `auto_threshold_mist` 自動代發、> 則 pending 待確認、flag_review→needs_review）、`models/agent_decision.py` + migration 007（`agent_decisions` 表 + 委託 `auto_threshold_mist`，已套用 DB）、`trip_service` complete/cancel 接線（handled=False 時完全走既有規則路徑，行為不變）、`api/v1/agent.py`（+activities/confirm/decline/settings）、`notifier.notify_agent_decision`、`config.py`（LLM_* + fail-fast）。

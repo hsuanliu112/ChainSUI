@@ -45,8 +45,12 @@ class PaymentZkLoginService:
     def lock_payment_target(self) -> str:
         return f"{self.package_id}::payment_escrow::lock_payment"
 
-    async def _pick_passenger_coin(self, passenger: str, amount_mist: int) -> str:
-        """從乘客地址挑一個餘額 >= amount 的 SUI coin 物件，作為拆分來源。"""
+    async def _pick_passenger_coins(self, passenger: str, amount_mist: int) -> list[str]:
+        """
+        挑出加總 >= amount 的 SUI coin 清單（Enoki 贊助 gas，coin 只需覆蓋付款額本身）。
+        優先單顆足額（挑最小的足額顆，減少碎幣佔用）；沒有單顆足額時由大到小湊足，
+        由呼叫端在 PTB 內 merge 後再 split——修掉「多顆小 coin 加總夠卻付不了」的問題。
+        """
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(self.node_url, json={
                 "jsonrpc": "2.0", "id": 1, "method": "suix_getCoins",
@@ -54,12 +58,21 @@ class PaymentZkLoginService:
             })
             resp.raise_for_status()
             coins = resp.json().get("result", {}).get("data", [])
-        # 挑第一個餘額足夠的（Enoki 贊助 gas，故此 coin 只需覆蓋付款額本身）
-        for c in coins:
-            if int(c["balance"]) >= amount_mist:
-                return c["coinObjectId"]
+
+        sufficient = [c for c in coins if int(c["balance"]) >= amount_mist]
+        if sufficient:
+            best = min(sufficient, key=lambda c: int(c["balance"]))
+            return [best["coinObjectId"]]
+
+        picked: list[str] = []
+        total = 0
+        for c in sorted(coins, key=lambda c: int(c["balance"]), reverse=True):
+            picked.append(c["coinObjectId"])
+            total += int(c["balance"])
+            if total >= amount_mist:
+                return picked
         raise PaymentBuildError(
-            f"乘客 {passenger[:10]}… 無餘額 >= {amount_mist} MIST 的 SUI coin，請先領測試幣"
+            f"乘客 {passenger[:10]}… SUI 總餘額 {total} MIST 不足支付 {amount_mist} MIST，請先領測試幣"
         )
 
     async def build_lock_payment_kind(
@@ -75,7 +88,7 @@ class PaymentZkLoginService:
         if not platform:
             raise PaymentBuildError("缺少 platform 位址（PLATFORM_WALLET_ADDRESS）")
 
-        coin_id = await self._pick_passenger_coin(passenger, amount_mist)
+        coin_ids = await self._pick_passenger_coins(passenger, amount_mist)
 
         try:
             from pysui import SuiConfig, SyncClient
@@ -96,8 +109,12 @@ class PaymentZkLoginService:
         # sender = 乘客 zkLogin 位址（非 operator）
         txn = SyncTransaction(client=client, initial_sender=SuiAddress(passenger))
 
-        # 從乘客 coin 拆出精確付款額（只鎖 amount，不鎖整顆）
-        pay_coin = txn.split_coin(coin=ObjectID(coin_id), amounts=[amount_mist])
+        # 多顆小 coin 時先在 PTB 內合併到第一顆（gas 由 Enoki 贊助，乘客 coins 可全數參與合併），
+        # 再從合併後的 coin 拆出精確付款額（只鎖 amount，不鎖整顆）。單顆足額時 coin_ids 只有一顆，不 merge。
+        primary = ObjectID(coin_ids[0])
+        if len(coin_ids) > 1:
+            txn.merge_coins(merge_to=primary, merge_from=[ObjectID(c) for c in coin_ids[1:]])
+        pay_coin = txn.split_coin(coin=primary, amounts=[amount_mist])
 
         # 呼叫 lock_payment（平台費由合約鏈上計算，不由後端傳入）
         txn.move_call(
@@ -112,8 +129,11 @@ class PaymentZkLoginService:
 
         # 序列化為 transaction kind bytes（不含 gas；由 Enoki 贊助填 gas）
         kind_bytes = base64.b64encode(txn.serialize()).decode()
-        logger.info(f"✅ 已組 lock_payment kind bytes（trip={trip_id}, amount={amount_mist}, coin={coin_id[:10]}…）")
-        return {"kind_bytes": kind_bytes, "target": self.lock_payment_target, "coin": coin_id}
+        logger.info(
+            f"✅ 已組 lock_payment kind bytes（trip={trip_id}, amount={amount_mist}, "
+            f"coins={len(coin_ids)} 顆，primary={coin_ids[0][:10]}…）"
+        )
+        return {"kind_bytes": kind_bytes, "target": self.lock_payment_target, "coins": coin_ids}
 
     async def sponsor_lock_payment(self, kind_bytes: str, passenger: str) -> Dict[str, Any]:
         """請 Enoki 贊助這筆 lock_payment。回 {bytes, digest}。"""

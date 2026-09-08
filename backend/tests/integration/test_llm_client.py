@@ -28,14 +28,18 @@ def test_enabled_false_when_flag_off(monkeypatch):
 
 
 def test_enabled_false_when_missing_base_url(monkeypatch):
+    # 直接測 enabled property：base_url 為空 → False（不依賴 __init__ 的 settings fallback，
+    # 也不受 .env 是否已設 LLM_BASE_URL 影響）。
     monkeypatch.setattr(settings, "AGENT_LLM_ENABLED", True)
-    client = LLMClient(base_url="", model="qwen2.5")
+    client = LLMClient(base_url="http://llm.local/v1", model="qwen2.5")
+    client.base_url = ""
     assert client.enabled is False
 
 
 def test_enabled_false_when_missing_model(monkeypatch):
     monkeypatch.setattr(settings, "AGENT_LLM_ENABLED", True)
-    client = LLMClient(base_url="http://llm.local/v1", model="")
+    client = LLMClient(base_url="http://llm.local/v1", model="qwen2.5")
+    client.model = ""
     assert client.enabled is False
 
 

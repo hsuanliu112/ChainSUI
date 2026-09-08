@@ -10,8 +10,10 @@ from typing import Optional, Dict, Any
 
 from app.api.deps import get_async_session, get_current_user
 from app.core.rate_limit import rate_limit
+from app.config import settings
 from app.models.user import User
 from app.services.wallet_service import wallet_service
+import httpx
 import logging
 
 logger = logging.getLogger(__name__)
@@ -258,6 +260,65 @@ async def get_balance(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"查詢餘額失敗: {str(e)}"
         )
+
+
+@router.post(
+    "/faucet",
+    dependencies=[Depends(rate_limit(times=3, seconds=600, scope="wallet-faucet"))],
+)
+async def request_faucet(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    向 Sui testnet faucet 領測試幣到當前用戶（zkLogin）位址。
+
+    - 僅在 testnet 啟用（mainnet 沒有 faucet，且真幣不該這樣領）。
+    - faucet 本身有嚴格限流；此處另加後端限流（每用戶 10 分鐘最多 3 次），
+      並把 faucet 的 429 轉成友善訊息，而非把原始錯誤丟給前端。
+    """
+    if settings.SUI_NETWORK != "testnet":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"領測試幣僅在 testnet 可用（目前網路：{settings.SUI_NETWORK}）",
+        )
+    if not current_user.wallet_address:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用戶尚無錢包位址（請先以 zkLogin 登入）",
+        )
+
+    faucet_url = "https://faucet.testnet.sui.io/gas"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                faucet_url,
+                json={"FixedAmountRequest": {"recipient": current_user.wallet_address}},
+            )
+    except httpx.HTTPError as e:
+        logger.warning(f"faucet 連線失敗: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="無法連上 testnet faucet，請稍後再試",
+        )
+
+    if resp.status_code == 429:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="faucet 目前限流中（同位址短時間領太多次），請過幾分鐘再試",
+        )
+    if resp.status_code >= 400:
+        logger.warning(f"faucet 回應 {resp.status_code}: {resp.text[:200]}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"faucet 領取失敗（HTTP {resp.status_code}）",
+        )
+
+    logger.info(f"用戶 {current_user.id} 領測試幣到 {current_user.wallet_address[:12]}…")
+    return {
+        "success": True,
+        "address": current_user.wallet_address,
+        "message": "已向 testnet faucet 請求測試幣，通常數秒內到帳，可重新查詢餘額確認。",
+    }
 
 
 @router.post("/sign-transaction")

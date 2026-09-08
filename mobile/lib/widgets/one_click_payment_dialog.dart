@@ -581,6 +581,10 @@ class _OneClickPaymentDialogState extends State<OneClickPaymentDialog>
 
   Future<void> _startPayment() async {
     try {
+      // Step 0: 付款前餘額預檢——不足就快速失敗給明確訊息，
+      // 而非走到後端組交易挑 coin 時才炸（付款是乘客自己的 SUI）。
+      await _precheckBalance();
+
       // Step 1: 準備交易
       await _prepareTransaction();
 
@@ -598,6 +602,30 @@ class _OneClickPaymentDialogState extends State<OneClickPaymentDialog>
 
     } catch (e) {
       _failPayment(e.toString());
+    }
+  }
+
+  /// 付款前查餘額；不足直接拋錯（由 _startPayment 的 catch → _failPayment 呈現）。
+  /// 查詢失敗（網路等）不擋付款——讓後端組交易時的真檢查決定，避免誤擋。
+  Future<void> _precheckBalance() async {
+    try {
+      final res = await ApiService.getWalletBalance();
+      if (res['success'] != true) return; // 查不到餘額不擋，交給後端把關
+      final data = res['data'] ?? res;
+      final balanceSui = (data['balance_sui'] is num)
+          ? (data['balance_sui'] as num).toDouble()
+          : double.tryParse('${data['balance_sui'] ?? ''}') ?? -1;
+      if (balanceSui < 0) return; // 格式異常不擋
+      if (balanceSui < widget.amountSui) {
+        throw Exception(
+          '餘額不足：現有 ${balanceSui.toStringAsFixed(4)} SUI，'
+          '需 ${widget.amountSui.toStringAsFixed(4)} SUI。請先到「錢包」領測試幣後再付款。',
+        );
+      }
+    } on Exception {
+      rethrow; // 餘額不足的明確錯誤往上拋
+    } catch (_) {
+      // 其餘（解析等）不擋付款
     }
   }
 

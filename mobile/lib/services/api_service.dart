@@ -552,6 +552,13 @@ class ApiService {
     });
   }
 
+  // 向 testnet faucet 領測試幣到當前用戶（zkLogin）位址
+  static Future<Map<String, dynamic>> requestFaucet() async {
+    return _handleRequest((client) {
+      return client.post(Uri.parse('$baseUrl/wallet/faucet'), headers: _headers);
+    });
+  }
+
   // 簽署交易
   static Future<Map<String, dynamic>> signTransaction({
     required String password,

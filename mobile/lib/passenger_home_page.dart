@@ -1020,6 +1020,14 @@ class _PassengerHomePageState extends State<PassengerHomePage> {
     Navigator.pushNamed(context, '/profile', arguments: {'session': _session});
   }
 
+  /// 錢包餘額 + 一鍵領測試幣（付款用的是乘客自己的 SUI，先確保有餘額）
+  Future<void> _showWalletSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetCtx) => _WalletSheet(),
+    );
+  }
+
   /// 登出並返回角色選擇頁面
   Future<void> _handleLogout() async {
     // 顯示確認對話框
@@ -1128,9 +1136,21 @@ class _PassengerHomePageState extends State<PassengerHomePage> {
                 _handleLogout();
               } else if (value == 'delegation') {
                 Navigator.pushNamed(context, '/delegation');
+              } else if (value == 'wallet') {
+                _showWalletSheet();
               }
             },
             itemBuilder: (BuildContext context) => [
+              const PopupMenuItem<String>(
+                value: 'wallet',
+                child: Row(
+                  children: [
+                    Icon(Icons.account_balance_wallet, color: Color(0xFF1DB954)),
+                    SizedBox(width: 8),
+                    Text('錢包餘額 / 領測試幣'),
+                  ],
+                ),
+              ),
               const PopupMenuItem<String>(
                 value: 'delegation',
                 child: Row(
@@ -2253,6 +2273,133 @@ class _VehicleChip extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 錢包餘額 + 一鍵領測試幣底部面板。
+/// 付款用的是乘客自己的 zkLogin 錢包 SUI，這裡讓乘客先查餘額、不足時領測試幣（testnet）。
+class _WalletSheet extends StatefulWidget {
+  @override
+  State<_WalletSheet> createState() => _WalletSheetState();
+}
+
+class _WalletSheetState extends State<_WalletSheet> {
+  bool _loading = true;
+  bool _fauceting = false;
+  double? _balanceSui;
+  String? _address;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBalance();
+  }
+
+  Future<void> _loadBalance() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final res = await ApiService.getWalletBalance();
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      if (res['success'] == true) {
+        final data = res['data'] ?? res;
+        _balanceSui = (data['balance_sui'] is num)
+            ? (data['balance_sui'] as num).toDouble()
+            : double.tryParse('${data['balance_sui'] ?? ''}');
+        _address = data['address'] as String?;
+      } else {
+        _error = res['error']?.toString() ?? '查詢餘額失敗';
+      }
+    });
+  }
+
+  Future<void> _faucet() async {
+    setState(() => _fauceting = true);
+    final res = await ApiService.requestFaucet();
+    if (!mounted) return;
+    setState(() => _fauceting = false);
+    final ok = res['success'] == true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ok
+          ? '✅ 已向 faucet 請求測試幣，數秒後重查餘額'
+          : '領測試幣失敗：${res['error'] ?? '未知錯誤'}'),
+    ));
+    if (ok) {
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted) _loadBalance();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.account_balance_wallet, color: Color(0xFF1DB954)),
+              SizedBox(width: 8),
+              Text('錢包餘額',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_loading)
+            const Center(child: Padding(
+              padding: EdgeInsets.all(12), child: CircularProgressIndicator()))
+          else if (_error != null)
+            Text('⚠️ $_error', style: const TextStyle(color: Colors.redAccent))
+          else ...[
+            Text('${_balanceSui?.toStringAsFixed(4) ?? '--'} SUI',
+                style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            if (_address != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '${_address!.substring(0, 10)}…${_address!.substring(_address!.length - 6)}',
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ),
+          ],
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : _loadBalance,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('重新查詢'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _fauceting ? null : _faucet,
+                  icon: _fauceting
+                      ? const SizedBox(
+                          width: 16, height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.water_drop, size: 18),
+                  label: Text(_fauceting ? '領取中…' : '領測試幣'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '付款時的車資由你的錢包 SUI 支出（gas 由平台贊助）。testnet 可免費領測試幣。',
+            style: TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
