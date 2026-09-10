@@ -16,3 +16,9 @@ String get localBackendUrl => 'http://192.168.x.x:8000/api/v1';
 // - 192.168.1.x
 // - 192.168.50.x
 // - 10.0.0.x
+
+// zkLogin（Google OAuth）本地覆蓋值。向 Google Cloud Console 申請 OAuth client 後填入。
+// 留佔位符即可編譯；實際登入需填真值（見 docs/ZKLOGIN_SETUP.md）。
+// 注意：這些 getter 必須與 app_config.local.dart 一致，否則 app_config.dart 參照會編譯失敗。
+String get localGoogleOAuthClientId => 'YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com';
+String get localGoogleOAuthRedirectUrl => 'com.example.projectDapp:/oauth2redirect';
