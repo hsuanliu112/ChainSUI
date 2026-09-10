@@ -14,6 +14,11 @@ os.environ.setdefault("SECRET_KEY", "integration-test-only-secret")
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://unused:unused@localhost:5432/unused")
 os.environ.setdefault("MOCK_MODE", "false")
 os.environ.setdefault("OPERATOR_PRIVATE_KEY", "suiprivkey1-test-placeholder-never-used")
+# agent_service / payment 等服務在建構時讀 CONTRACT_PACKAGE_ID；乾淨環境（CI 無 .env）
+# 下若為空會提早 return「缺少 CONTRACT_PACKAGE_ID」，使依賴鏈上路徑的測試拿到非預期錯誤。
+# 給一個良構 dummy（64 hex）；容器有真值時 setdefault 不覆蓋。
+os.environ.setdefault("CONTRACT_PACKAGE_ID", "0x" + "ab" * 32)
+os.environ.setdefault("PLATFORM_WALLET_ADDRESS", "0x" + "cd" * 32)
 
 from types import SimpleNamespace
 

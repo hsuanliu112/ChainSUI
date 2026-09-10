@@ -7,6 +7,10 @@ uvicorn[standard]==0.24.0
 sqlalchemy==2.0.23
 asyncpg==0.29.0
 alembic==1.12.1
+# SQLAlchemy async engine 必要（create_async_engine 用到）。
+# SQLAlchemy 只在特定平台 marker 才自動帶 greenlet，乾淨環境（如 CI）需顯式安裝，
+# 否則 async session 在 collection 階段就報 "greenlet library is required"。
+greenlet==3.0.3
 
 # 數據驗證
 pydantic==2.5.0
