@@ -129,7 +129,7 @@ cd mobile && flutter test        # 行動端
 
 ## 授權
 
-目前尚未加入授權條款（repo 內無 LICENSE 檔）。要開源再補一份 LICENSE 並於此註明。
+本專案採 MIT 授權，見 [LICENSE](LICENSE)。
 
 ---
 
