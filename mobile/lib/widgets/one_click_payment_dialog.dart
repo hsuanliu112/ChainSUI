@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/zklogin_payment_service.dart';
 
@@ -873,15 +874,16 @@ class _OneClickPaymentDialogState extends State<OneClickPaymentDialog>
                           onPressed: () {
                             // 計算平台費用
                             final platformFee = (widget.amountSui * 1000000000 * 0.05).toInt();
+                            // 合約與平台位址一律取自 AppConfig 單一來源，不得硬編碼。
                             final contractInfo = '''
-合約地址: 0xa6232c7f85812fe5e57c2e72071915e538ebd2fd7aba98371bd58490e790380b
+合約地址: ${AppConfig.contractPackageId}
 模塊::函數: payment_escrow::lock_payment
 
 參數:
 payment: ${widget.amountSui.toStringAsFixed(4)} SUI
 trip_id: ${widget.tripId}
 driver: ${widget.driverWallet ?? "未提供"}
-platform: 0x6dfff9f4efba3579ce7db6e2f40cfb23461f2aa4e632eb477454bf8c10e0e7b7
+platform: ${AppConfig.platformAddress}
 platform_fee: $platformFee MIST (5%)
 ''';
                             Clipboard.setData(ClipboardData(text: contractInfo));
@@ -902,7 +904,7 @@ platform_fee: $platformFee MIST (5%)
                     // 合約地址
                     _buildManualPaymentRow(
                       '合約地址',
-                      '0xa6232c7f85812fe5e57c2e72071915e538ebd2fd7aba98371bd58490e790380b',
+                      AppConfig.contractPackageId,
                       canCopy: true,
                       fullText: true,
                     ),
@@ -942,7 +944,7 @@ platform_fee: $platformFee MIST (5%)
                             '1. payment: ${widget.amountSui.toStringAsFixed(4)} SUI\n'
                             '2. trip_id: ${widget.tripId}\n'
                             '3. driver: ${widget.driverWallet != null ? "${widget.driverWallet!.substring(0, 20)}..." : "未提供"}\n'
-                            '4. platform: 0x6dfff9f4efba3579...e7b7\n'
+                            '4. platform: ${AppConfig.platformAddress.substring(0, 18)}...${AppConfig.platformAddress.substring(AppConfig.platformAddress.length - 4)}\n'
                             '5. platform_fee: ${(widget.amountSui * 1000000000 * 0.05).toInt()} MIST (5%)',
                             style: const TextStyle(
                               color: Colors.white60,
@@ -959,7 +961,7 @@ platform_fee: $platformFee MIST (5%)
                     // 平台地址完整顯示
                     _buildManualPaymentRow(
                       '平台地址 (platform)',
-                      '0x6dfff9f4efba3579ce7db6e2f40cfb23461f2aa4e632eb477454bf8c10e0e7b7',
+                      AppConfig.platformAddress,
                       canCopy: true,
                       fullText: true,
                     ),

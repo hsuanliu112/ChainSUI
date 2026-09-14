@@ -32,16 +32,17 @@ class AppConfig {
   static const String osmTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
   // ---- 鏈上合約（單一事實來源）----
-  // 當前已加固部署（testnet，含 dispute/agent-cap/pool-refund）。與後端 .env
-  // CONTRACT_PACKAGE_ID 一致，已用 RPC 驗證此 package 具 raise_dispute/resolve_dispute。
-  // 注意：舊碼中的 0xa6232c…380b、0xda64…542f 為過期 package（無爭議函式），屬死值，
-  // 隨 payment_dialog / sui_*_service（Phase 4/9）移除後淘汰，新流程一律引用此處。
+  // 2026-09-14 金鑰輪替後以新平台錢包重新部署（testnet，含 dispute/agent-cap/pool-refund）。
+  // 與後端 .env CONTRACT_PACKAGE_ID 一致；所有 admin cap（Refund/CredentialAdmin/Rating/Arbiter）
+  // 與 RefundPoolV2.platform_address 皆綁定新錢包。
+  // 舊 package 0xb761c6f5…e23f（部署者私鑰已洩漏）、0xa6232c…380b、0xda64…542f 均為死值，整組棄置。
   static const String contractPackageId =
-      '0xb761c6f5681e5f46533a52840dcd9e8f7bcb2a6f749dcc6a3e7646e37867e23f';
+      '0x95f9980906fb946ffd1c7474e59c9155d9075d62b8c3ca5511b6ca53fed779b0';
 
-  // 平台收費地址（與後端 .env PLATFORM_WALLET_ADDRESS 一致）
+  // 平台收費 / Agent 簽章地址（與後端 .env PLATFORM_WALLET_ADDRESS 一致）。
+  // 舊地址 0x013a90ee…af36 的私鑰曾入庫洩漏，已於 2026-09-14 作廢並清空。
   static const String platformAddress =
-      '0x013a90ee08199af4cdb1158fec0eca54e1174b93492180a33ea8298e94f3af36';
+      '0x5b6d842300004da9b766ecd92e5f7c44fab986ae900e0c7e4d6f372b917bf3ac';
 
   // ---- zkLogin（Google OAuth）----
   // 需在 Google Cloud 建立 OAuth Client（iOS/Android/Web），並在 Enoki Portal

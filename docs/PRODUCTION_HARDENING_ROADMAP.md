@@ -173,7 +173,7 @@
 - [x] ✅ **A3a** `user_registry` reputation/rides 提權防護（UserProfile 改共享 + admin 把關；`vehicle_registry.add_trip` 同）
 - [x] ✅ **A3b** `rating_proof` 綁定 TripReceipt（評價者須為該行程乘客）+ 統計更新併入評價 + `RatingAdminCap` 建立統計
 - [x] ✅ **A4** `did_registry` 存在檢查 + DID 內嵌位址綁定 controller + 下溢註記；`string::as_bytes`
-- [x] ✅ **B1** `config.py` 移除弱預設 + fail-fast（缺 SECRET_KEY/DATABASE_URL/OPERATOR_PRIVATE_KEY 即拒絕啟動）；`wallet_service` salt 改隨機。⚠️ **金鑰輪替由用戶手動處理（進行中）**
+- [x] ✅ **B1** `config.py` 移除弱預設 + fail-fast（缺 SECRET_KEY/DATABASE_URL/OPERATOR_PRIVATE_KEY 即拒絕啟動）；`wallet_service` salt 改隨機。✅ **operator 金鑰輪替已於 2026-09-14 完成**（新錢包重新部署整套合約，見 §8）
 - [x] 🟡 **B2**（安全加固部分）移除 `sui_service` 靜默假成功 fallback + `escrow_service.refund` 假 hash；CORS/Socket.IO 收斂白名單；`refunds` approve/reject 還原 `get_current_admin`。**真實 pysui 交易串接（release_payment_by_agent + OperatorCap）移至 P1 D2**（依賴 cap 部署）
 - [x] ✅ **C1** `credential_verifier` 改 `sui::groth16` 真驗證 + `CredentialAdminCap` + license deactivated 檢查
 - [x] 🟡 **C2**（後端安全部分）移除**所有**可偽造的 simulated ZKP 路徑（`zkp_prover`/`zkp_verifier` 缺 key 改 fail-closed；`identity_service` 移除 `_simulate_zkp_verification` 兩條捷徑）；額外修掉 `trips.py` 的**免費搭車漏洞**（模擬付款改為只在 `MOCK_MODE` 生效）。**行動端本地產證待辦**（需 Flutter JS/WASM prover runtime，見下）
@@ -219,6 +219,13 @@
 
 ## 8. 變更日誌 (Changelog)
 
+- 2026-09-14 · [operator 金鑰輪替：新錢包全套重新部署] · `contracts/test_wallet_info.txt` 曾把平台錢包 `0x013a90ee…` 私鑰推上公開 repo（已刪檔，仍在 git 歷史）。該錢包同時是收費位址、Agent 簽章金鑰與合約部署者（持有全部 admin cap；`RefundPoolV2.platform_address` 亦在 init 綁死部署者），故採**全套重新部署**而非轉移 cap。
+  - **鏈上**：`sui client new-address ed25519` 建新錢包 `platform_operator_v2`（`0x5b6d84…bf3ac`）；faucet 持續 429，改把舊錢包與舊部署者 `0x6dff…` 的 testnet SUI 全數轉入新錢包（順便清空洩漏錢包）；`sui client publish` 成功（digest `H6Jzju…oquC`，0.24 SUI），新 package `0x95f99809…79b0`，11 個 registry/pool/cap 物件全數擷取無空值，4 個 admin cap + UpgradeCap 經 CLI 確認 owner 為新錢包。註：`deploy_and_init.sh` 在 gas 分散於多 coin 時會因單 coin 不足 budget 靜默失敗，本次以 `--gas <coin>` 指定後成功。
+  - **設定**：`.env`（gitignored）13 個變數（新私鑰、`PLATFORM_WALLET_ADDRESS`、`CONTRACT_PACKAGE_ID`、10 個 `*_ID`）以腳本就地改寫，私鑰全程未印出、未落 tracked 檔；`app_config.dart` 的 `contractPackageId`/`platformAddress` 換新；`Published.toml`/`Move.lock` 同步新 package；刪除過期 `deploy_output.json`/`.package_id`（零引用）；兩份 `.env.example` 補齊 config.py 實際讀取但漏列的 7 個 ID/cap 變數。
+  - **死值清理**：`one_click_payment_dialog.dart` 手動付款區 5 處硬編碼舊 package/平台位址改引用 `AppConfig` 單一來源；刪除零引用死碼 `sui_wallet_service.dart`（硬編碼 `0xa6232c`/`0x6dff`），wallet_setup_page 兩行殘留註解一併清理。
+  - **驗證**：後端 force-recreate 後 `/health` 200、容器內 `settings` 讀到新 package/位址/cap、整合測試 **76 passed**；`sui move test` **19/19**（Move.lock 新 rev 相容）；`flutter analyze` **0 error**；`mobile/lib` 零殘留舊地址/舊 package（app_config 註解除外）。
+  - **邊界**：不重寫 git 歷史（testnet key、無真實價值）；舊 package/舊 escrow/舊 OperatorCap 整組棄置，用戶需重新委託；Enoki Portal allowedMoveCallTargets 換新 package 由使用者操作（USER_ACTION_ITEMS）。
+  · `.env`(未入庫), `mobile/lib/config/app_config.dart`, `mobile/lib/widgets/one_click_payment_dialog.dart`, `mobile/lib/pages/wallet_setup_page.dart`, 刪 `mobile/lib/services/sui_wallet_service.dart`, `contracts/{Published.toml,Move.lock}`, 刪 `contracts/{deploy_output.json,.package_id}`, `.env.example`, `backend/.env.example`, `CLAUDE.md`, `docs/USER_ACTION_ITEMS.md`
 - 2026-09-14 · [CI/CD 修復：三 job 首次全綠] · CI 自建立（run #12）起一直全紅，逐一查 GitHub Actions 實際失敗定位並修復（Move job 一直綠——因有釘 sui 版本）。
   - **backend pytest**：(1) 缺 `greenlet`——SQLAlchemy async engine 必要，只在特定平台 marker 自動帶，CI 乾淨 install 沒裝 → async 測試 collection 階段全滅；requirements 顯式釘 `greenlet==3.0.3`。(2) 測試依賴 .env——`agent_service` 建構讀 `CONTRACT_PACKAGE_ID`，CI 無 .env → 提早 return 使 2 個測試拿到非預期錯誤；conftest 補 `CONTRACT_PACKAGE_ID`/`PLATFORM_WALLET_ADDRESS` setdefault。
   - **flutter analyze**（真根因，本機測不出——因 gitignored 檔本機存在）：多個 **tracked 檔 import 到被 .gitignore 排除的檔**，origin 缺檔 → CI `uri_does_not_exist` + 連鎖 undefined error，等於 repo 一直無法編譯。(a) 刪死碼 `place_search_field.dart`（零引用，import 被忽略的 geocoding_service）；(b) `sui_wallet_connector.dart` / `google_directions_service.dart` 被 main.dart / trip_in_progress 引用卻因「當年含金鑰」被忽略（金鑰早已移至 config），徹底掃描無秘密後**納入版控**、移除過時 gitignore 行。寫了全面靜態掃描確認所有 tracked import 都指向 repo 內存在的檔。flutter job 也釘版本 3.35.2。

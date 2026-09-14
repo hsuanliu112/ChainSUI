@@ -15,7 +15,8 @@
   不得復活任何 iota_* 程式。
 - **Package ID / 平台位址不得硬編碼在任何文件或程式中**。
   唯一事實來源：`mobile/lib/config/app_config.dart` 的 `contractPackageId` / `platformAddress`。
-  `contracts/Published.toml` 與舊文件中的 `0xa6232c…`、`0xda64…` 為**死值**；需要 ID 時先讀 app_config.dart。
+  2026-09-14 金鑰輪替後以新錢包重新部署，`contracts/Published.toml` / `Move.lock` 已同步為新 package；
+  舊文件中的 `0xb761c6f5…`、`0xa6232c…`、`0xda64…` 均為**死值**；需要 ID 時先讀 app_config.dart。
 - Move 命名空間：`autodrive::*`（financial + identity/DID）、`decentralized_ride::*`
   （registries/rating/receipt）、`agent_registry`（OperatorCap 委託）。
 - 後端：FastAPI + Postgres + `pysui==0.65.0`。已知坑：
@@ -25,7 +26,9 @@
   回報中必須標註「待使用者本機 flutter build 驗證」，不得宣稱已驗證。
 - 大容量資料（軌跡 / 評價內容 / 退款佐證）走 **Walrus**，鏈上只存 `blob_id` + `content_hash`；
   單節點 IPFS 已淘汰。
-- ⚠️ `.env` 內曾有真實 operator 私鑰與 API 金鑰 → **視為已洩漏，須輪替**。
+- 🔑 平台 operator 私鑰曾入庫洩漏（`test_wallet_info.txt`，仍在 git 歷史）→ **已於 2026-09-14 輪替**：
+  新錢包重新部署整套合約，舊錢包 `0x013a90ee…` 已清空作廢。**任何時候都不得復用該舊地址/舊 package**。
+  Mapbox pk token 輪替仍待使用者（見 USER_ACTION_ITEMS）。
 
 ## 2. 鐵律（違反即視為任務失敗）
 
@@ -104,6 +107,6 @@ scripts/ops/fund_refund_pool.sh
 配合）
 3. 🟡 **D2 收尾** per-user cap 發現（passenger → cap_object_id 映射）+
    `trip_service.complete_trip` 放款改走 `agent_service`
-4. 🟡 金鑰輪替（`.env` 私鑰視為已洩漏，需使用者手動處理，見 USER_ACTION_ITEMS）
+4. ✅ operator 金鑰輪替（2026-09-14 完成，新錢包重新部署）；🟡 Enoki Portal 的 allowedMoveCallTargets 改指新 package（使用者手動）
 
 （✅ 已完成不再列入：G2 整合測試 43/43、G1 Move 安全測試、P0 合約/後端加固）

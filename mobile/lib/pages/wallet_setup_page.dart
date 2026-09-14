@@ -3,7 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-// import '../services/sui_wallet_service.dart'; // TODO: 實現完整的錢包管理服務
+// 舊 sui_wallet_service（硬編碼過期 package/平台位址的 WebView 方案）已於 2026-09-14 刪除；
+// 錢包/付款一律走 zkLogin + Enoki 路徑（services/zklogin_*），合約 ID 取自 config/app_config.dart。
 
 class WalletSetupPage extends StatefulWidget {
   const WalletSetupPage({Key? key}) : super(key: key);
@@ -268,9 +269,7 @@ class _WalletSetupPageState extends State<WalletSetupPage> {
     });
     
     try {
-      // TODO: 實現錢包服務
-      // final walletService = Provider.of<SuiWalletService>(context, listen: false);
-      // final apiBaseUrl = 'http://localhost:8000';
+      // TODO: 實現錢包服務（走 zkLogin 路徑；勿復活已刪除的 SuiWalletService）
       
       Map<String, dynamic> result = {
         'success': false,

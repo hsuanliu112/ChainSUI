@@ -107,3 +107,7 @@ mobile/lib/services/geocoding_service.dart
 # 金鑰已移至 config，且 main.dart / trip_in_progress 仍在引用，故納入版控（否則 CI/新 clone 缺檔無法編譯）。
 
 .claude/settings.local.json
+
+# 測試錢包私鑰檔（切勿入庫）
+contracts/test_wallet_info.txt
+*wallet_info*.txt

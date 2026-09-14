@@ -2,7 +2,7 @@
 
 > 這是「**需要你本人操作、我（Claude）無法代做**」的事情的**單一清單**。
 > 程式碼側我已完成的進度見 `docs/PRODUCTION_HARDENING_ROADMAP.md` §8 變更日誌。
-> 完成一項就打勾。最後更新：2026-09-05。
+> 完成一項就打勾。最後更新：2026-09-14。
 
 ## 🔴 P0 — Mapbox token 輪替（2026-09-05 新增）
 
@@ -16,20 +16,32 @@
 
 ---
 
+## ✅ operator 私鑰輪替（2026-09-14 Claude 已完成鏈上與程式碼側）
+
+`contracts/test_wallet_info.txt` 曾把平台錢包 `0x013a90ee…af36` 的私鑰推上公開 repo。已處理：
+新錢包 `0x5b6d84…bf3ac` 重新部署整套合約（新 package `0x95f99809…79b0`，admin cap 全部重 mint 給新錢包），
+`.env` / `app_config.dart` / `Published.toml` 同步；舊錢包餘額已清空作廢。**不重寫 git 歷史**（testnet key、無真實價值）。
+剩下只有你能做的：
+- [ ] **Enoki Portal allowed move call targets 換成新 package**（下方 P0 第 1 節的三行已更新為新值）
+- [ ] 舊 OperatorCap 因 `agent` 綁舊地址已失效：實機測試時用戶要**重新委託**一次（app 內 delegation 頁）
+- [ ] （選配）退款池注資：`scripts/ops/fund_refund_pool.sh`（active-address 須為新錢包 `platform_operator_v2`）
+- [ ] （選配）ZKP 驗證金鑰註冊：用新 `CredentialAdminCap` 呼叫 `credential_verifier::register_verification_key`
+
+---
+
 ## 🔴 P0 — 卡住 zkLogin 全部功能（登入/付款/委託/爭議）
 
 ### 1. Enoki Portal 設定贊助交易
 - 位置：https://portal.enoki.mystenlabs.com → 你的 app（對應 `enoki_public_643a…c75`）
 - [ ] 開啟 **交易贊助（sponsored transactions）** 並**儲值 testnet gas**
 - [ ] **允許 move 目標**（allowed move call targets），把下面**三行完整字串**逐一貼上
-  （格式 = `package::module::function`，已用 RPC 驗證這三個函式都在鏈上）：
+  （格式 = `package::module::function`；**2026-09-14 金鑰輪替後已換成新 package**，舊 `0xb761c6f5…` 的三行請刪除）：
   ```
-  0xb761c6f5681e5f46533a52840dcd9e8f7bcb2a6f749dcc6a3e7646e37867e23f::payment_escrow::lock_payment
-  0xb761c6f5681e5f46533a52840dcd9e8f7bcb2a6f749dcc6a3e7646e37867e23f::agent_registry::issue_operator_cap
-  0xb761c6f5681e5f46533a52840dcd9e8f7bcb2a6f749dcc6a3e7646e37867e23f::payment_escrow::raise_dispute
+  0x95f9980906fb946ffd1c7474e59c9155d9075d62b8c3ca5511b6ca53fed779b0::payment_escrow::lock_payment
+  0x95f9980906fb946ffd1c7474e59c9155d9075d62b8c3ca5511b6ca53fed779b0::agent_registry::issue_operator_cap
+  0x95f9980906fb946ffd1c7474e59c9155d9075d62b8c3ca5511b6ca53fed779b0::payment_escrow::raise_dispute
   ```
-  > package id 的權威來源：`.env` 的 `CONTRACT_PACKAGE_ID`（＝上面這串）。
-  > ⚠️ 不要用 `Published.toml`/`CLAUDE.md` 裡的 `0xa6232c…380b`，那是過期版（無爭議函式）。
+  > package id 的權威來源：`mobile/lib/config/app_config.dart` 的 `contractPackageId`（與 `.env` 的 `CONTRACT_PACKAGE_ID` 一致）。
 - ✅ Google Auth Provider 已註冊（我驗證過，這項已完成）
 
 ### 2. Google OAuth 同意畫面
@@ -76,9 +88,9 @@
 
 ## ⚪ P3 — 資料一致性（低優先，建議清）
 
-- [x] ~~`CLAUDE.md` 過期 package~~ → 已更新為 `0xb761c6f5…e23f`（2026-08-10）
-- [ ] `contracts/Published.toml` 仍寫過期 package `0xa6232c…380b`。它是 `sui move` 產生檔，
-  建議下次 `sui move` 部署時自動更新即可；或要我手動改跟我說（改前想跟你確認，因它是工具產生的）
+- [x] ~~`CLAUDE.md` 過期 package~~ → 2026-09-14 隨金鑰輪替更新為新 package `0x95f99809…79b0`
+- [x] ~~`contracts/Published.toml` 仍寫過期 package~~ → 2026-09-14 重新部署後已同步為新 package；
+  過期的 `deploy_output.json` / `.package_id` 已刪除
 
 ---
 
