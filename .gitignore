@@ -98,12 +98,12 @@ backend/find_driver.py
 mobile/devtools_options.yaml
 mobile/web/
 
-# 舊的服務檔案（已棄用）
+# 舊的服務檔案（已棄用；真正未使用才忽略）
 mobile/lib/services/old_*.dart
 mobile/lib/services/wallet_connect_service.dart
-mobile/lib/services/sui_wallet_connector.dart
 mobile/lib/services/sui_contract_service.dart
 mobile/lib/services/geocoding_service.dart
-mobile/lib/services/google_directions_service.dart
+# 注意：sui_wallet_connector.dart 與 google_directions_service.dart 曾因硬編碼金鑰被忽略，
+# 金鑰已移至 config，且 main.dart / trip_in_progress 仍在引用，故納入版控（否則 CI/新 clone 缺檔無法編譯）。
 
 .claude/settings.local.json
