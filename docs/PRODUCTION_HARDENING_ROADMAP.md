@@ -219,6 +219,12 @@
 
 ## 8. 變更日誌 (Changelog)
 
+- 2026-09-14 · [CI/CD 修復：三 job 首次全綠] · CI 自建立（run #12）起一直全紅，逐一查 GitHub Actions 實際失敗定位並修復（Move job 一直綠——因有釘 sui 版本）。
+  - **backend pytest**：(1) 缺 `greenlet`——SQLAlchemy async engine 必要，只在特定平台 marker 自動帶，CI 乾淨 install 沒裝 → async 測試 collection 階段全滅；requirements 顯式釘 `greenlet==3.0.3`。(2) 測試依賴 .env——`agent_service` 建構讀 `CONTRACT_PACKAGE_ID`，CI 無 .env → 提早 return 使 2 個測試拿到非預期錯誤；conftest 補 `CONTRACT_PACKAGE_ID`/`PLATFORM_WALLET_ADDRESS` setdefault。
+  - **flutter analyze**（真根因，本機測不出——因 gitignored 檔本機存在）：多個 **tracked 檔 import 到被 .gitignore 排除的檔**，origin 缺檔 → CI `uri_does_not_exist` + 連鎖 undefined error，等於 repo 一直無法編譯。(a) 刪死碼 `place_search_field.dart`（零引用，import 被忽略的 geocoding_service）；(b) `sui_wallet_connector.dart` / `google_directions_service.dart` 被 main.dart / trip_in_progress 引用卻因「當年含金鑰」被忽略（金鑰早已移至 config），徹底掃描無秘密後**納入版控**、移除過時 gitignore 行。寫了全面靜態掃描確認所有 tracked import 都指向 repo 內存在的檔。flutter job 也釘版本 3.35.2。
+  - 驗證：GitHub Actions run #22 三 job（Move / Backend / Flutter）**全 success**。
+  · `backend/requirements.txt`, `backend/tests/integration/conftest.py`, `.github/workflows/ci.yml`, `.gitignore`, 刪 `mobile/lib/widgets/place_search_field.dart`, 納入 `mobile/lib/services/{sui_wallet_connector,google_directions_service}.dart`
+
 - 2026-09-08 · [I1 付款效率快速改善包] · 讓入金/付款在 app 內更順（不動合約）。
   - **coin 挑選 bug 修復**：`payment_zklogin_service._pick_passenger_coin`→`_pick_passenger_coins`——單顆足額優先（挑最小足額顆），否則由大到小湊足；`build_lock_payment_kind` 多顆時先 `txn.merge_coins` 合併再 `split_coin`。修掉「多顆小 coin 加總夠卻付不了」。加總不足才報錯（訊息帶目前總餘額）。
   - **一鍵領測試幣**：`POST /wallet/faucet`（authed，取 user zkLogin 位址打 testnet faucet）——僅 testnet、後端限流 3 次/10 分、429 轉友善訊息、連線失敗回 502。`GET /wallet/balance` 沿用既有。
