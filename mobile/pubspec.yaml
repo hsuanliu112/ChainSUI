@@ -49,6 +49,10 @@ dev_dependencies:
   flutter_lints: ^5.0.0
 
 flutter:
+  # Flutter 3.35 + iOS 26 的 LLDB 偵錯器常掛不上，app 會停在啟動畫面（白屏）。
+  # 關掉 LLDB 只影響 debug 啟動方式，hot reload / 除錯輸出不受影響。
+  config:
+    enable-lldb-debugging: false
   uses-material-design: true
   assets:
     - assets/vehicles.json
