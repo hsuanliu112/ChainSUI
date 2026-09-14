@@ -69,20 +69,10 @@ jobs:
       - name: flutter pub get
         working-directory: mobile
         run: flutter pub get
-      # 專案通過標準是「0 error」（現存 17 warning / 402 info 留待清理，見 roadmap §8 2026-08-13）
-      # 用 tee 存完整輸出成 artifact，即使失敗也保留，方便診斷 CI 專屬的 analyze error。
+      # 專案通過標準是「0 error」（現存 warning / info 留待清理，見 roadmap §8 2026-08-13）
       - name: flutter analyze
         working-directory: mobile
-        run: |
-          set -o pipefail
-          flutter analyze --no-fatal-warnings --no-fatal-infos 2>&1 | tee analyze_output.txt
-      - name: 上傳 analyze 輸出（診斷用，永遠上傳）
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: flutter-analyze-output
-          path: mobile/analyze_output.txt
-          if-no-files-found: warn
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - name: flutter test
         working-directory: mobile
         run: flutter test
