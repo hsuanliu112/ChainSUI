@@ -97,13 +97,15 @@ class _LoginPageState extends State<LoginPage> {
       username: user['username']?.toString() ?? identifier,
       role: finalRole,
       accessToken: accessToken,
+      refreshToken: data['refresh_token']?.toString(),
+      accessTokenExpiresAt: ApiService.expiresAtFrom(data['expires_in']),
       walletAddress: user['wallet_address']?.toString(),
       phoneNumber: user['phone_number']?.toString(),
       email: user['email']?.toString(),
     );
 
     await SessionManager.saveSession(session);
-    ApiService.setToken(session.accessToken);
+    ApiService.adoptSession(session);
 
     if (!mounted) return;
 
@@ -134,7 +136,7 @@ class _LoginPageState extends State<LoginPage> {
     try {
       final session =
           await ZkLoginService.instance.loginWithGoogle(userType: widget.role);
-      ApiService.setToken(session.accessToken);
+      ApiService.adoptSession(session);
       if (!mounted) return;
       setState(() => message = '登入成功');
       Navigator.pushReplacementNamed(

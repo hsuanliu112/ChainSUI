@@ -48,12 +48,15 @@ class _AuthPageState extends State<AuthPage> {
           username: userData['username'],
           role: finalRole,
           accessToken: result['data']['access_token'],
+          refreshToken: result['data']['refresh_token']?.toString(),
+          accessTokenExpiresAt: ApiService.expiresAtFrom(result['data']['expires_in']),
           walletAddress: userData['wallet_address'],
           phoneNumber: userData['phone_number'],
           email: userData['email'],
         );
 
         await SessionManager.saveSession(session);
+        ApiService.adoptSession(session);
 
         // ✅ 統一初始化 WebSocket 連接（登入成功後唯一入口）
         print('🔌 登入成功，初始化 WebSocket 連接...');

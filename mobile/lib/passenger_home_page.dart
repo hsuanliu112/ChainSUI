@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'payment_page.dart';
-import 'role_select_page.dart';
 import 'services/api_service.dart';
 import 'services/google_places_service.dart';
 import 'services/websocket_service.dart';
@@ -1057,21 +1056,8 @@ class _PassengerHomePageState extends State<PassengerHomePage> {
 
     if (confirm != true) return;
 
-    // 清除 Session
-    await SessionManager.clearSession();
-    ApiService.clearToken();
-
-    // 斷開 WebSocket 連接
-    _ws.disconnect();
-
-    if (!mounted) return;
-
-    // 使用 pushAndRemoveUntil 清空導航堆疊並返回角色選擇頁面
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const RoleSelectPage()),
-      (route) => false,
-    );
+    // J1：統一登出（後端撤銷 refresh + 清 session + 斷 WS + 導回 /role_select）
+    await ApiService.logout();
   }
 
   @override

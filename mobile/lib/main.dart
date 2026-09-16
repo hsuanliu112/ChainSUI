@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'theme/app_theme.dart';
+import 'app_navigator.dart';
 import 'pages/delegation_page.dart';
 import 'package:uni_links/uni_links.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -99,9 +100,19 @@ Future<void> main() async {
 
     session = await SessionManager.loadSession();
     if (session != null) {
-      ApiService.setToken(session.accessToken);
-      // 如果用戶已登入，初始化 WebSocket 連接
-      await WebSocketService().connect();
+      ApiService.adoptSession(session);
+      // J1：啟動時只在「已知 access 過期」才主動 refresh（避免 WS 拿死 token 連線）；
+      // 執行期靠 _handleRequest 的 401 兜底。refresh 被拒 → forceLogout 已清 session。
+      if (ApiService.accessLikelyExpired && ApiService.hasRefreshToken) {
+        final ok = await ApiService.refreshTokens();
+        if (!ok && ApiService.token == null) {
+          session = null;
+        }
+      }
+      if (session != null) {
+        // 如果用戶已登入，初始化 WebSocket 連接
+        await WebSocketService().connect();
+      }
     }
   } catch (e, s) {
     // 任何啟動階段的未捕捉例外 → 印出來，而非靜默閃退；仍嘗試啟動 UI
@@ -120,6 +131,7 @@ class ProjectDappApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey, // J1：讓 ApiService.forceLogout 能導回登入
       title: 'Decentralized Ride App',
       debugShowCheckedModeBanner: false,
       // 本地化設定

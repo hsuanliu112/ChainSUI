@@ -3,13 +3,41 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'api_service.dart';
 import 'http_client_manager.dart';
 import '../config/app_config.dart';
 
+/// 退款 API（multipart 上傳，不走 ApiService._handleRequest）。
+/// J1：token 改由 ApiService 提供（不再由頁面傳入 stale 的 session.accessToken），
+/// 送出前先確認 access 未過期，收到 401 則 refresh 後重送一次。
 class RefundService {
   static final _httpClient = HttpClientManager();
   // 統一改用 AppConfig（原本硬編碼 IP 172.20.10.14 已移除）
   static String get baseUrl => AppConfig.backendUrl;
+
+  /// 取得可用的 access token；已知過期則先 refresh。回 null = 未登入。
+  static Future<String?> _freshToken() async {
+    if (ApiService.accessLikelyExpired && ApiService.hasRefreshToken) {
+      await ApiService.refreshTokens();
+    }
+    return ApiService.token;
+  }
+
+  /// 執行一次可能因 401 需要重送的請求。
+  static Future<http.Response?> _withRetry(
+    Future<http.Response> Function(String token) send,
+  ) async {
+    final token = await _freshToken();
+    if (token == null) return null;
+    var response = await send(token);
+    if (response.statusCode == 401 && ApiService.hasRefreshToken) {
+      final ok = await ApiService.refreshTokens();
+      if (ok && ApiService.token != null) {
+        response = await send(ApiService.token!);
+      }
+    }
+    return response;
+  }
 
   /// 創建退款請求
   ///
@@ -18,7 +46,6 @@ class RefundService {
   /// - reason: 退款原因（至少 10 個字）
   /// - refundAmountSui: 退款金額（SUI）
   /// - evidenceFile: 退款證據文件（選填）
-  /// - token: 用戶認證令牌
   ///
   /// 返回：成功狀態與退款請求數據
   static Future<Map<String, dynamic>> createRefundRequest({
@@ -26,70 +53,48 @@ class RefundService {
     required String reason,
     required double refundAmountSui,
     File? evidenceFile,
-    required String token,
   }) async {
     try {
-      // 構建 multipart request
       final uri = Uri.parse('$baseUrl/refunds/create');
+      final fileBytes = evidenceFile == null ? null : await evidenceFile.readAsBytes();
+      final fileName = evidenceFile?.path.split('/').last;
 
-      final request = http.MultipartRequest('POST', uri);
-      request.headers['Authorization'] = 'Bearer $token';
+      // MultipartRequest 不能重複 send，重送時需重建；故包成 closure。
+      final response = await _withRetry((token) async {
+        final request = http.MultipartRequest('POST', uri);
+        request.headers['Authorization'] = 'Bearer $token';
+        request.fields['trip_id'] = tripId.toString();
+        request.fields['reason'] = reason;
+        request.fields['refund_amount_sui'] = refundAmountSui.toString();
+        if (fileBytes != null) {
+          request.files.add(http.MultipartFile.fromBytes('evidence_file', fileBytes, filename: fileName));
+        }
+        // MultipartRequest.send() 回傳 StreamedResponse，與 _httpClient.executeRequest 型別不相容
+        final streamed = await request.send();
+        return http.Response.fromStream(streamed);
+      });
 
-      // 添加表單字段
-      request.fields['trip_id'] = tripId.toString();
-      request.fields['reason'] = reason;
-      request.fields['refund_amount_sui'] = refundAmountSui.toString();
-
-      // 添加證據文件（如果有）
-      if (evidenceFile != null) {
-        final fileBytes = await evidenceFile.readAsBytes();
-        final multipartFile = http.MultipartFile.fromBytes(
-          'evidence_file',
-          fileBytes,
-          filename: evidenceFile.path.split('/').last,
-        );
-        request.files.add(multipartFile);
+      if (response == null) {
+        return {'success': false, 'error': '請先登入後再申請退款'};
       }
-
-      // 發送 multipart 請求。MultipartRequest.send() 回傳 StreamedResponse，
-      // 與 _httpClient.executeRequest（只吃 Future<Response>）型別不相容，
-      // 故用 BaseRequest.send()（自行管理 client）再轉成 Response。
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return {
-          'success': true,
-          'data': data,
-        };
-      } else {
-        final error = json.decode(response.body);
-        return {
-          'success': false,
-          'error': error['detail'] ?? '創建退款請求失敗',
-        };
+        return {'success': true, 'data': json.decode(response.body)};
       }
+      final error = json.decode(response.body);
+      return {'success': false, 'error': error['detail'] ?? '創建退款請求失敗'};
     } catch (e) {
       print('❌ 創建退款請求失敗: $e');
-      return {
-        'success': false,
-        'error': '創建退款請求失敗: $e',
-      };
+      return {'success': false, 'error': '創建退款請求失敗: $e'};
     }
   }
 
   /// 獲取用戶的退款請求列表
   ///
   /// 參數：
-  /// - token: 用戶認證令牌
   /// - limit: 最大返回數量（選填）
   ///
   /// 返回：退款請求列表
-  static Future<Map<String, dynamic>> getUserRefunds({
-    required String token,
-    int? limit,
-  }) async {
+  static Future<Map<String, dynamic>> getUserRefunds({int? limit}) async {
     try {
       final queryParams = <String, String>{};
       if (limit != null) queryParams['limit'] = limit.toString();
@@ -98,33 +103,20 @@ class RefundService {
         queryParameters: queryParams.isNotEmpty ? queryParams : null,
       );
 
-      final response = await _httpClient.executeRequest(
-        (client) => client.get(
-          uri,
-          headers: {
-            'Authorization': 'Bearer $token',
-          },
-        ),
-      );
+      final response = await _withRetry((token) => _httpClient.executeRequest(
+            (client) => client.get(uri, headers: {'Authorization': 'Bearer $token'}),
+          ));
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return {
-          'success': true,
-          'data': data,
-        };
-      } else {
-        return {
-          'success': false,
-          'error': '獲取退款列表失敗',
-        };
+      if (response == null) {
+        return {'success': false, 'error': '請先登入'};
       }
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': json.decode(response.body)};
+      }
+      return {'success': false, 'error': '獲取退款列表失敗'};
     } catch (e) {
       print('❌ 獲取退款列表失敗: $e');
-      return {
-        'success': false,
-        'error': '獲取退款列表失敗: $e',
-      };
+      return {'success': false, 'error': '獲取退款列表失敗: $e'};
     }
   }
 }

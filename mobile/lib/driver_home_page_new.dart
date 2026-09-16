@@ -4,7 +4,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'config/map_config.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'role_select_page.dart';
 import 'services/api_service.dart';
 import 'services/websocket_service.dart';
 import 'services/notification_service.dart';
@@ -234,21 +233,8 @@ class _DriverHomePageNewState extends State<DriverHomePageNew> with SingleTicker
 
     if (confirm != true) return;
 
-    // 清除 Session
-    await SessionManager.clearSession();
-    ApiService.clearToken();
-
-    // 斷開 WebSocket 連接
-    WebSocketService().disconnect();
-
-    if (!mounted) return;
-
-    // 使用 pushAndRemoveUntil 清空導航堆疊並返回角色選擇頁面
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const RoleSelectPage()),
-      (route) => false,
-    );
+    // J1：統一登出（後端撤銷 refresh + 清 session + 斷 WS + 導回 /role_select）
+    await ApiService.logout();
   }
 
   Future<void> _refreshData({bool initial = false}) async {
@@ -265,21 +251,8 @@ class _DriverHomePageNewState extends State<DriverHomePageNew> with SingleTicker
 
     if (!mounted) return;
 
-    // ✅ 檢查 401 認證失敗錯誤
+    // 401 已由 ApiService._handleRequest 統一處理（refresh 或 forceLogout），此處不再自行導頁
     if (vehicleResult['statusCode'] == 401 || activeTripResult['statusCode'] == 401) {
-      print('❌ 認證失敗，跳轉到登入頁面');
-
-      // 清除 token 和 session
-      ApiService.clearToken();
-      await SessionManager.clearSession();
-
-      if (!mounted) return;
-
-      // 跳轉到角色選擇頁面
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const RoleSelectPage()),
-        (route) => false,
-      );
       return;
     }
 

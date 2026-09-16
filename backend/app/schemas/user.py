@@ -134,20 +134,10 @@ class UserLogin(BaseModel):
 # 保持相容性
 LoginWithPassword = UserLogin
 
-class Token(BaseModel):
-    """JWT Token 模型"""
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-class TokenData(BaseModel):
-    """Token 數據模型"""
-    username: Optional[str] = None
-    user_id: Optional[int] = None
-
 class TokenResponse(BaseModel):
-    """Token 響應模型"""
+    """Token 響應模型（J1：含 refresh token；expires_in 為 access 有效秒數）"""
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     expires_in: int
     user: UserResponse

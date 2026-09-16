@@ -8,12 +8,11 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from jose import JWTError, jwt
 from typing import Optional
 
 from app.core.database import get_async_session
+from app.core.security import TokenError, decode_token
 from app.models.user import User
-from app.config import settings
 
 # JWT Bearer token scheme
 security = HTTPBearer()
@@ -32,18 +31,11 @@ async def get_current_user(
     )
     
     try:
-        # 解碼 JWT token
-        payload = jwt.decode(
-            credentials.credentials, 
-            settings.SECRET_KEY, 
-            algorithms=[settings.ALGORITHM]
-        )
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-    except JWTError:
+        # 只接受 type=access 的短效 token（refresh 不是 JWT、admin token 不可互用）
+        user_id = decode_token(credentials.credentials, "access")
+    except TokenError:
         raise credentials_exception
-    
+
     # 從資料庫查詢用戶
     stmt = select(User).where(User.id == int(user_id))
     result = await db.execute(stmt)
@@ -111,19 +103,12 @@ async def get_current_user_optional(
         return None
     
     try:
-        payload = jwt.decode(
-            credentials.credentials, 
-            settings.SECRET_KEY, 
-            algorithms=[settings.ALGORITHM]
-        )
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            return None
-            
-        stmt = select(User).where(User.id == int(user_id))
-        result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
-        
-        return user if user and user.is_active else None
-    except JWTError:
+        user_id = decode_token(credentials.credentials, "access")
+    except TokenError:
         return None
+
+    stmt = select(User).where(User.id == int(user_id))
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    return user if user and user.is_active else None

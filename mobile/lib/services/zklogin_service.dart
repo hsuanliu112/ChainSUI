@@ -137,8 +137,11 @@ class ZkLoginService {
       username: data['username'] as String,
       role: (data['role'] as String?) ?? userType,
       accessToken: data['access_token'] as String,
+      refreshToken: data['refresh_token'] as String?,
+      accessTokenExpiresAt: ApiService.expiresAtFrom(data['expires_in']),
       walletAddress: data['wallet_address'] as String?,
     );
+    ApiService.adoptSession(session);
     await SessionManager.saveSession(session);
     return session;
   }
@@ -199,9 +202,10 @@ class ZkLoginService {
     return sk;
   }
 
+  /// 完整登出：清 zkLogin 臨時私鑰（只有這裡會清）+ 撤銷 refresh + 清 session + 導頁。
   Future<void> logout() async {
     _session = null;
     await _storage.delete(key: _skKey);
-    await SessionManager.clearSession();
+    await ApiService.logout();
   }
 }

@@ -18,6 +18,13 @@
 - `estimated_wait_minutes` (INTEGER): 預估等待時間
 - `actual_wait_minutes` (INTEGER): 實際等待時間
 
+### 008: Refresh token（J1）
+- **檔案**: `008_add_refresh_tokens.sql`
+- **日期**: 2026-09-16
+- **說明**: 新增 `refresh_tokens` 表。只存 sha256 雜湊；每次使用輪替（舊列 `revoked_at` + `replaced_by_id`）；
+  已作廢 token 再用視為外洩 → 撤銷該主體全部。`user_id` / `admin_id` 二選一（CHECK 約束）。
+- **套用**: `docker compose exec -T db psql -U autodrive -d autodrive_dev -f - < backend/migrations/008_add_refresh_tokens.sql`
+
 ## 🚀 如何執行遷移
 
 ### 方法 1: Docker 容器內執行

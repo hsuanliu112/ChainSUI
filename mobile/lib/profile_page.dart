@@ -58,10 +58,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _logout() async {
-    await SessionManager.clearSession();
-    ApiService.clearToken();
-    if (!mounted) return;
-    Navigator.pushNamedAndRemoveUntil(context, '/role_select', (route) => false);
+    // J1：統一登出（後端撤銷 refresh + 清 session + 斷 WS + 導回 /role_select）
+    await ApiService.logout();
   }
 
   Future<void> _showEditDialog() async {

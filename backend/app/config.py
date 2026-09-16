@@ -39,8 +39,14 @@ class Settings(BaseSettings):
 
     # 安全配置（無弱預設；由環境變數提供）
     SECRET_KEY: str = os.getenv("SECRET_KEY", "")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     ALGORITHM: str = "HS256"
+    # J1 token 有效期（非秘密，不進 .env）：
+    #   一般使用者 access 15 分（過期由 app 用 refresh token 靜默換新）；
+    #   dashboard 管理員 access 60 分（dashboard 尚未接 refresh，暫維持較長）；
+    #   refresh 30 天，DB 存雜湊、每次使用輪替。
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ADMIN_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # CORS 允許來源（逗號分隔）。預設只允許本機開發來源，生產須明確設定。
     CORS_ALLOW_ORIGINS: str = os.getenv(

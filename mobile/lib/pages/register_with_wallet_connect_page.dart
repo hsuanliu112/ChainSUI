@@ -977,12 +977,15 @@ class _RegisterWithWalletConnectPageState
         username: userData['username'],
         role: _userType,
         accessToken: loginResult['data']['access_token'],
+        refreshToken: loginResult['data']['refresh_token']?.toString(),
+        accessTokenExpiresAt: ApiService.expiresAtFrom(loginResult['data']['expires_in']),
         walletAddress: _connectedWalletAddress,
         phoneNumber: userData['phone_number'],
         email: _emailController.text.trim(),
       );
 
       await SessionManager.saveSession(session);
+      ApiService.adoptSession(session);
 
       // 跳轉到主頁
       if (mounted) {

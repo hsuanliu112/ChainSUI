@@ -2,7 +2,10 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'http_client_manager.dart';
+import 'websocket_service.dart';
+import '../app_navigator.dart';
 import '../config/app_config.dart';
+import '../session_manager.dart';
 
 class ApiService {
   // 後端 API 基礎 URL（從配置讀取）
@@ -12,21 +15,59 @@ class ApiService {
   // HTTP Client 管理器（單例）
   static final _httpClient = HttpClientManager();
 
-  // 存儲用戶 token
+  // ── J1 token 狀態（記憶體；持久化在 SessionManager）──
   static String? _token;
+  static String? _refreshToken;
+  static DateTime? _accessExpiresAt;
+  static Future<bool>? _refreshInFlight; // 單飛：同時多個 401 只 refresh 一次
+  static bool _loggingOut = false;
+
+  static String? get token => _token;
+  static bool get hasRefreshToken => _refreshToken != null && _refreshToken!.isNotEmpty;
+
+  /// access 已過期（或 30 秒內將過期）。未知到期時間視為未過期，交給 401 兜底。
+  static bool get accessLikelyExpired {
+    final exp = _accessExpiresAt;
+    if (exp == null) return false;
+    return DateTime.now().isAfter(exp.subtract(const Duration(seconds: 30)));
+  }
 
   // 獲取基礎 URL（用於 WebSocket）
   static String getBaseUrl() {
     return baseUrl.replaceAll('/api/v1', ''); // 移除 API 路徑
   }
 
-  // 設置 token
+  // 只設 access（舊呼叫端相容）；新流程請用 setSession / adoptSession
   static void setToken(String token) {
     _token = token;
   }
 
+  static void setSession({required String access, String? refresh, DateTime? expiresAt}) {
+    _token = access;
+    _refreshToken = refresh;
+    _accessExpiresAt = expiresAt;
+  }
+
+  /// 從 UserSession 帶入三件組（登入成功 / app 啟動時）
+  static void adoptSession(UserSession session) {
+    setSession(
+      access: session.accessToken,
+      refresh: session.refreshToken,
+      expiresAt: session.accessTokenExpiresAt,
+    );
+  }
+
+  /// 後端 expires_in（秒）→ 本地到期時間
+  static DateTime? expiresAtFrom(dynamic expiresIn) {
+    final secs = expiresIn is num ? expiresIn.toInt() : int.tryParse('${expiresIn ?? ''}');
+    if (secs == null) return null;
+    return DateTime.now().add(Duration(seconds: secs));
+  }
+
   static void clearToken() {
     _token = null;
+    _refreshToken = null;
+    _accessExpiresAt = null;
   }
 
   // 獲取 headers
@@ -35,12 +76,89 @@ class ApiService {
 
     if (_token != null) {
       headers['Authorization'] = 'Bearer $_token';
-      print('使用 Token: ${_token!.substring(0, 20)}...');
     } else {
       print('警告：沒有 Token！');
     }
 
     return headers;
+  }
+
+  // ── J1：refresh / 登出 ─────────────────────────────────────
+
+  /// 用 refresh token 換新的 access + refresh。單飛；回 true = 已換到新 token。
+  /// 回 false 時：refresh 被後端拒絕 → 已 forceLogout；網路/5xx → 保留 session。
+  static Future<bool> refreshTokens() {
+    return _refreshInFlight ??= _doRefresh().whenComplete(() => _refreshInFlight = null);
+  }
+
+  static Future<bool> _doRefresh() async {
+    final rt = _refreshToken;
+    if (rt == null || rt.isEmpty) {
+      await forceLogout();
+      return false;
+    }
+    http.Response res;
+    try {
+      // 不走 _handleRequest（避免遞迴）、不帶 Bearer（access 可能已過期）
+      res = await _httpClient.executeRequest((client) => client.post(
+            Uri.parse('$baseUrl/auth/refresh'),
+            headers: const {'Content-Type': 'application/json'},
+            body: jsonEncode({'refresh_token': rt}),
+          ));
+    } catch (e) {
+      print('⚠️ refresh 網路錯誤（保留 session）: $e');
+      return false;
+    }
+
+    if (res.statusCode == 200) {
+      final d = jsonDecode(res.body) as Map<String, dynamic>;
+      final access = d['access_token'] as String;
+      final refresh = d['refresh_token'] as String;
+      final exp = expiresAtFrom(d['expires_in']) ?? DateTime.now().add(const Duration(minutes: 15));
+      setSession(access: access, refresh: refresh, expiresAt: exp);
+      await SessionManager.updateTokens(access: access, refresh: refresh, expiresAt: exp);
+      print('🔄 access token 已更新（expires ${exp.toIso8601String()}）');
+      await WebSocketService().reconnect();
+      return true;
+    }
+    if (res.statusCode == 401 || res.statusCode == 403) {
+      print('❌ refresh 被拒（${res.statusCode}）：${res.body}');
+      await forceLogout();
+      return false;
+    }
+    print('⚠️ refresh 暫時失敗（${res.statusCode}），保留 session');
+    return false;
+  }
+
+  /// 登入狀態失效：清本地 session、斷 WS、導回角色選擇頁。不碰 zkLogin 臨時私鑰。
+  static Future<void> forceLogout() async {
+    if (_loggingOut) return;
+    _loggingOut = true;
+    try {
+      clearToken();
+      WebSocketService().disconnect();
+      await SessionManager.clearSession();
+      appNavigatorKey.currentState?.pushNamedAndRemoveUntil('/role_select', (_) => false);
+    } finally {
+      _loggingOut = false;
+    }
+  }
+
+  /// 使用者主動登出：後端撤銷 refresh（盡力而為）+ 本地清除 + 導頁。
+  static Future<void> logout() async {
+    final rt = _refreshToken;
+    if (rt != null && rt.isNotEmpty) {
+      try {
+        await _httpClient.executeRequest((client) => client.post(
+              Uri.parse('$baseUrl/auth/logout'),
+              headers: const {'Content-Type': 'application/json'},
+              body: jsonEncode({'refresh_token': rt}),
+            ));
+      } catch (e) {
+        print('⚠️ 後端登出未送達（本地仍清除）: $e');
+      }
+    }
+    await forceLogout();
   }
 
   static Map<String, dynamic> _wrapResponse(http.Response response) {
@@ -87,11 +205,29 @@ class ApiService {
   }
 
   static Future<Map<String, dynamic>> _handleRequest(
-    Future<http.Response> Function(http.Client) request,
-  ) async {
+    Future<http.Response> Function(http.Client) request, {
+    bool allowRefresh = true,
+  }) async {
     try {
+      // 已知 access 過期 → 先換，省一趟必敗的 401
+      if (allowRefresh && accessLikelyExpired && hasRefreshToken) {
+        await refreshTokens();
+      }
+
       // 使用 HTTP Client Manager 執行請求，自動處理 client 錯誤
-      final response = await _httpClient.executeRequest(request);
+      var response = await _httpClient.executeRequest(request);
+
+      // 401 → 單飛 refresh → 成功則重呼 closure 一次（closure 內重讀 _headers，自動帶新 token）
+      if (response.statusCode == 401 && allowRefresh && hasRefreshToken) {
+        final refreshed = await refreshTokens();
+        if (refreshed) {
+          response = await _httpClient.executeRequest(request);
+        }
+      } else if (response.statusCode == 401 && allowRefresh && !hasRefreshToken) {
+        // 沒有 refresh 可用（例如升級前留下的舊 session）→ 直接視為登入失效
+        await forceLogout();
+      }
+
       final result = _wrapResponse(response);
 
       // 添加詳細日誌
@@ -355,9 +491,12 @@ class ApiService {
     if (result['success'] == true) {
       final data = result['data'];
       if (data is Map && data['access_token'] is String) {
-        final token = data['access_token'] as String;
-        setToken(token);
-        print('登入成功，Token 已設置: ${token.substring(0, 20)}...');
+        setSession(
+          access: data['access_token'] as String,
+          refresh: data['refresh_token'] as String?,
+          expiresAt: expiresAtFrom(data['expires_in']),
+        );
+        print('登入成功，token 已設置');
       } else {
         print('警告：登入成功但沒有 access_token');
         print('響應數據: $data');

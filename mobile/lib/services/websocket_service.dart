@@ -38,21 +38,24 @@ class WebSocketService {
       _isConnected = false;
     }
 
-    // 獲取 token
-    final session = await SessionManager.loadSession();
-    if (session == null || session.accessToken.isEmpty) {
+    // 獲取 token：優先用 ApiService 記憶體中的（refresh 後最新），沒有才讀持久化 session
+    String? token = ApiService.token;
+    if (token == null || token.isEmpty) {
+      final session = await SessionManager.loadSession();
+      token = session?.accessToken;
+    }
+    if (token == null || token.isEmpty) {
       print('❌ WebSocket: 無法連接，缺少 token');
       return;
     }
 
-    _currentToken = session.accessToken;
+    _currentToken = token;
 
     // 獲取 API 基礎 URL (不含 /api/v1)
     final apiUrl = ApiService.getBaseUrl();
 
     print('🔌 WebSocket: 嘗試連接到 $apiUrl');
     print('🔑 WebSocket: Token 長度 = ${_currentToken?.length ?? 0}');
-    print('🔑 WebSocket: Token 前 50 字元 = ${_currentToken?.substring(0, _currentToken!.length > 50 ? 50 : _currentToken!.length)}...');
 
     try {
       // 確保使用正確的 Socket.IO 路徑
@@ -403,8 +406,8 @@ class WebSocketService {
     print('📤 WebSocket: 發送 $event');
   }
 
-  /// 斷開連接
-  void disconnect() {
+  /// 斷開連接。[keepListeners] 為 true 時保留頁面已註冊的事件監聽（重連用）。
+  void disconnect({bool keepListeners = false}) {
     if (_socket != null) {
       print('🔌 WebSocket: 主動斷開連接');
       _socket!.disconnect();
@@ -412,13 +415,17 @@ class WebSocketService {
       _socket = null;
     }
     _isConnected = false;
-    _eventListeners.clear();
+    if (!keepListeners) {
+      _eventListeners.clear();
+    }
   }
 
-  /// 重新連接（例如 token 更新後）
+  /// 重新連接（token 更新後由 ApiService.refreshTokens 呼叫）。
+  /// socket.io 內建的自動重連會沿用建立時的舊 token，所以必須整個重建 socket；
+  /// _setupSocketListeners 只是把事件轉發進 _eventListeners，頁面訂閱不受影響。
   Future<void> reconnect() async {
     print('🔄 WebSocket: 重新連接');
-    disconnect();
+    disconnect(keepListeners: true);
     await connect();
   }
 }

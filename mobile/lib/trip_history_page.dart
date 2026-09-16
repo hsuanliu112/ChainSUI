@@ -267,20 +267,11 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
       // 提交退款請求（統一走 RefundService：multipart，支援佐證檔上傳）
       setState(() => _isLoading = true);
 
-      final token = _session?.accessToken;
-      if (token == null) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('請先登入後再申請退款'), backgroundColor: Colors.red),
-        );
-        return;
-      }
-
+      // J1：token 由 RefundService 從 ApiService 取得（自動 refresh），不再傳 widget 內的舊 session token
       final refundResult = await RefundService.createRefundRequest(
         tripId: tripId,
         reason: reason,
         refundAmountSui: amount,
-        token: token,
       );
 
       if (!mounted) return;

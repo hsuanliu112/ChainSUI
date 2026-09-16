@@ -15,10 +15,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.core.database import get_async_session
 from app.core.rate_limit import rate_limit
-from app.core.security import create_access_token
 from app.models.user import User
+from app.schemas.auth import LogoutRequest, RefreshRequest, TokenBundle, ZkLoginResponse
+from app.services.auth_service import AuthService, RefreshTokenError
 from app.services.zklogin_service import zklogin_service, ZkLoginError
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,7 @@ async def zklogin_nonce(body: NonceRequest):
 
 @router.post(
     "/zklogin/login",
+    response_model=ZkLoginResponse,
     dependencies=[Depends(rate_limit(times=20, seconds=60, scope="zk-login"))],
 )
 async def zklogin_login(body: ZkLoginRequest, db: AsyncSession = Depends(get_async_session)):
@@ -91,16 +94,65 @@ async def zklogin_login(body: ZkLoginRequest, db: AsyncSession = Depends(get_asy
         await db.refresh(user)
         logger.info(f"✅ zkLogin 建立新使用者 {user.id} ({address[:12]}…)")
 
-    token = create_access_token(user.id)
+    bundle = await AuthService(db).issue_bundle_for_user(user)
     return {
-        "access_token": token,
-        "token_type": "bearer",
+        **bundle,
         "user_id": user.id,
         "username": user.username,
         "wallet_address": user.wallet_address,
         "role": user.user_type,
         "is_new_user": is_new,
     }
+
+
+# ── J1：refresh / logout ─────────────────────────────────────
+_REFRESH_DETAIL = {
+    "invalid": "refresh_token_invalid",
+    "expired": "refresh_token_expired",
+    "reused": "refresh_token_reused",
+    "inactive": "account_inactive",
+}
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenBundle,
+    dependencies=[Depends(rate_limit(times=30, seconds=60, scope="auth-refresh"))],
+)
+async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_async_session)):
+    """
+    用 refresh token 換一組新的 access + refresh（舊 refresh 立即作廢）。
+    不需 Bearer（access 可能已過期）。已作廢 token 再用 → 該帳號全部 refresh 撤銷、回 401。
+    """
+    svc = AuthService(db)
+    try:
+        new_refresh, subject_type, subject_id = await svc.rotate(body.refresh_token)
+    except RefreshTokenError as e:
+        logger.warning(f"refresh 拒絕（{e.reason}）")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_REFRESH_DETAIL.get(e.reason, "refresh_token_invalid"),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access, expires_in = svc.access_for(subject_type, subject_id)
+    return {"access_token": access, "refresh_token": new_refresh, "token_type": "bearer", "expires_in": expires_in}
+
+
+@router.post(
+    "/logout",
+    dependencies=[Depends(rate_limit(times=10, seconds=60, scope="auth-logout"))],
+)
+async def logout(body: LogoutRequest, db: AsyncSession = Depends(get_async_session)):
+    """登出當前裝置：作廢這把 refresh token。冪等，不需 Bearer。"""
+    await AuthService(db).revoke(body.refresh_token)
+    return {"success": True}
+
+
+@router.post("/logout-all")
+async def logout_all(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_async_session)):
+    """登出所有裝置：撤銷此使用者全部 refresh token（需有效 access）。"""
+    revoked = await AuthService(db).revoke_all(user_id=user.id)
+    return {"success": True, "revoked": revoked}
 
 
 @router.post("/zklogin/zkp")

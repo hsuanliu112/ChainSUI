@@ -1,13 +1,12 @@
-from datetime import timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import hash_password, verify_password
 from app.models import AdminUser
 from app.schemas.admin import AdminCreateRequest, AdminInfo, AdminLoginRequest, AdminLoginResponse
+from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/admin/auth", tags=["admin-auth"])
 
@@ -24,8 +23,14 @@ async def admin_login(
     if not admin or not verify_password(payload.password, admin.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="電子郵件或密碼錯誤")
 
-    token = create_access_token(subject=str(admin.id), expires_delta=timedelta(hours=24))
-    return AdminLoginResponse(token=token, admin=AdminInfo.model_validate(admin))
+    # J1：admin access 60 分（type=admin，不可當一般使用者 token 用）+ refresh 30 天
+    bundle = await AuthService(session).issue_bundle_for_admin(admin)
+    return AdminLoginResponse(
+        token=bundle["access_token"],
+        refresh_token=bundle["refresh_token"],
+        expires_in=bundle["expires_in"],
+        admin=AdminInfo.model_validate(admin),
+    )
 
 
 @router.post("/create-admin", response_model=AdminInfo)

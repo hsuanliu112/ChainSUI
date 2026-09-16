@@ -86,6 +86,10 @@
 - [ ] 實機/模擬器跑 Google 登入（免助記詞）
 - [ ] 實機測付款 → 確認 `execute` 回傳 `escrow_object_id`（鏈上建立 Escrow）
 - [ ] 把第一個實機錯誤貼給我（很可能是 Enoki 簽名格式，排查點見 `docs/ZKLOGIN_SETUP.md`）
+- [ ] **J1 refresh token 實機驗證**（2026-09-17 新增；升級後第一次開 app 會被登出一次，屬預期）：
+  重新登入 → 等 15 分鐘（或暫時把 `backend/app/config.py` 的 `ACCESS_TOKEN_EXPIRE_MINUTES` 改 1 再 force-recreate）→
+  任一操作應自動成功，後端 log 出現一次 `POST /api/v1/auth/refresh 200`，WS 重連一次；關 Wi-Fi 操作失敗但**不會**被登出；
+  登出後 DB `refresh_tokens` 該列 `revoked_at` 非空
 
 ---
 

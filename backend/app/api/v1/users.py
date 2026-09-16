@@ -11,8 +11,7 @@ from app.schemas.user import (
     UserUpdate,
     UserCreateWithPassword
 )
-from app.core.security import create_access_token
-from datetime import timedelta
+from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -58,18 +57,9 @@ async def login(
             detail=error_message or "登入失敗"
         )
     
-    # 創建 JWT token
-    access_token = create_access_token(
-        subject=str(user.id),
-        expires_delta=timedelta(hours=24)
-    )
-    
-    return TokenResponse(
-        access_token=access_token,
-        token_type="bearer",
-        expires_in=86400,  # 24 hours
-        user=UserResponse.from_orm(user)
-    )
+    # J1：access 15 分 + refresh 30 天（DB 存雜湊、每次使用輪替）
+    bundle = await AuthService(db).issue_bundle_for_user(user)
+    return TokenResponse(**bundle, user=UserResponse.from_orm(user))
 
 @router.get("/check-username/{username}")
 async def check_username(

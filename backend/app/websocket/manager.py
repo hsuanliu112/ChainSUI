@@ -5,8 +5,7 @@ WebSocket 連接管理器
 import socketio
 from typing import Dict, Set, Optional
 from fastapi import HTTPException
-from jose import jwt, JWTError
-from app.config import settings
+from app.core.security import TokenError, decode_token
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,16 +34,9 @@ class ConnectionManager:
             用戶 ID，如果 token 無效則返回 None
         """
         try:
-            payload = jwt.decode(
-                token,
-                settings.SECRET_KEY,
-                algorithms=[settings.ALGORITHM]
-            )
-            user_id: str = payload.get("sub")
-            if user_id is None:
-                return None
-            return int(user_id)
-        except (JWTError, ValueError) as e:
+            # 與 REST 同一套規則：只收 type=access
+            return int(decode_token(token, "access"))
+        except (TokenError, ValueError) as e:
             logger.error(f"Token 驗證失敗: {e}")
             return None
 
