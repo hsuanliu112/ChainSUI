@@ -39,7 +39,7 @@ class PaymentZkLoginService:
     def __init__(self):
         self.node_url = settings.SUI_NODE_URL
         self.package_id = settings.CONTRACT_PACKAGE_ID
-        self.platform_address = getattr(settings, "PLATFORM_WALLET_ADDRESS", "")
+        self.platform_address = settings.PLATFORM_WALLET
 
     @property
     def lock_payment_target(self) -> str:
@@ -107,7 +107,9 @@ class PaymentZkLoginService:
         client = SyncClient(cfg)
 
         # sender = 乘客 zkLogin 位址（非 operator）
-        txn = SyncTransaction(client=client, initial_sender=SuiAddress(passenger))
+        # TransactionKind 不含 sender；builder 必須用 keystore 內的位址（operator）建，
+        # 乘客位址於 Enoki sponsor 時以 sender 另傳。coin 以 ObjectID 指定，不依賴 builder sender。
+        txn = SyncTransaction(client=client)  # 預設 sender = keystore 的 active address（operator）
 
         # 多顆小 coin 時先在 PTB 內合併到第一顆（gas 由 Enoki 贊助，乘客 coins 可全數參與合併），
         # 再從合併後的 coin 拆出精確付款額（只鎖 amount，不鎖整顆）。單顆足額時 coin_ids 只有一顆，不 merge。
@@ -128,7 +130,8 @@ class PaymentZkLoginService:
         )
 
         # 序列化為 transaction kind bytes（不含 gas；由 Enoki 贊助填 gas）
-        kind_bytes = base64.b64encode(txn.serialize()).decode()
+        # raw_kind() 才是 Enoki transactionKindBytes 要的 BCS TransactionKind；serialize() 是 builder 狀態。
+        kind_bytes = base64.b64encode(txn.raw_kind().serialize()).decode()
         logger.info(
             f"✅ 已組 lock_payment kind bytes（trip={trip_id}, amount={amount_mist}, "
             f"coins={len(coin_ids)} 顆，primary={coin_ids[0][:10]}…）"

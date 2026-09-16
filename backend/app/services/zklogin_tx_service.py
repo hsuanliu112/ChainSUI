@@ -37,10 +37,15 @@ class ZkLoginTxService:
         self.node_url = settings.SUI_NODE_URL
         self.package_id = settings.CONTRACT_PACKAGE_ID
         # 平台位址同時作為被授權的 Agent
-        self.agent_address = getattr(settings, "PLATFORM_WALLET_ADDRESS", "")
+        self.agent_address = settings.PLATFORM_WALLET
 
     def _txn_for(self, sender: str):
-        """建立以 sender 為送出者的 pysui 交易（僅序列化，不簽名）。"""
+        """建立 pysui 交易 builder，只用來產生 TransactionKind（不簽名、不送出）。
+
+        注意：TransactionKind 的 BCS 不含 sender / gas；乘客位址（sender）是在 Enoki
+        sponsor 時另外傳的。builder 的 initial_sender 必須是 keystore 內的位址（pysui 會
+        解析成 keypair），故一律用 operator 位址建，`sender` 參數僅保留供呼叫端語意。
+        """
         try:
             from pysui import SuiConfig, SyncClient
             from pysui.sui.sui_types.address import SuiAddress
@@ -53,7 +58,7 @@ class ZkLoginTxService:
             raise ZkTxBuildError("缺少 OPERATOR_PRIVATE_KEY（僅用於建立 client 實例）")
         cfg = SuiConfig.user_config(rpc_url=self.node_url, prv_keys=[operator_key])
         client = SyncClient(cfg)
-        return SyncTransaction(client=client, initial_sender=SuiAddress(sender))
+        return SyncTransaction(client=client)  # 預設 sender = keystore 的 active address（operator）
 
     # ── Phase 5：發行委託 ─────────────────────────────────────
     def issue_operator_cap_target(self) -> str:
@@ -85,7 +90,7 @@ class ZkLoginTxService:
                 ObjectID("0x6"),  # Clock
             ],
         )
-        return {"kind_bytes": base64.b64encode(txn.serialize()).decode(),
+        return {"kind_bytes": base64.b64encode(txn.raw_kind().serialize()).decode(),
                 "target": self.issue_operator_cap_target()}
 
     # ── Phase 6：發起爭議 ─────────────────────────────────────
@@ -103,7 +108,7 @@ class ZkLoginTxService:
                 list(reason.encode("utf-8")),  # reason: vector<u8>
             ],
         )
-        return {"kind_bytes": base64.b64encode(txn.serialize()).decode(),
+        return {"kind_bytes": base64.b64encode(txn.raw_kind().serialize()).decode(),
                 "target": self.raise_dispute_target()}
 
     # ── 贊助 / 送出 ──────────────────────────────────────────

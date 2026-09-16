@@ -33,6 +33,9 @@
 
 ### 1. Enoki Portal 設定贊助交易
 - 位置：https://portal.enoki.mystenlabs.com → 你的 app（對應 `enoki_public_643a…c75`）
+- [ ] **建立 Private API key 並換掉 `.env` 的 `ENOKI_API_KEY`**（2026-09-16 實測：目前填的是 `enoki_public_…`，
+  Enoki 對 `/transaction-blocks/sponsor` 回 403 `Private API key required`。public key 只能做登入 nonce/位址；
+  贊助交易、委託、爭議全部需要 private key。Portal → API keys → Create private key → 貼進 `.env` → `docker compose up -d --force-recreate backend`）
 - [ ] 開啟 **交易贊助（sponsored transactions）** 並**儲值 testnet gas**
 - [ ] **允許 move 目標**（allowed move call targets），把下面**三行完整字串**逐一貼上
   （格式 = `package::module::function`；**2026-09-14 金鑰輪替後已換成新 package**，舊 `0xb761c6f5…` 的三行請刪除）：
